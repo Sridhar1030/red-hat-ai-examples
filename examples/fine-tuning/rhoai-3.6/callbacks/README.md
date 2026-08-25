@@ -45,30 +45,11 @@ You define the callback once. The same class runs on any supported backend witho
 - OpenShift cluster with OpenShift AI (**RHOAI 3.6.EA1+**) and the **trainer** component enabled
 - `training-hub` ClusterTrainingRuntime available in the cluster
 - Kubeflow SDK with `callbacks=` support
-- `training_hub` with unified callbacks
-
-### Installing Training Hub from source
-
-Until the cluster runtime image ships unified callbacks, install from source via `packages_to_install`:
-
-```python
-packages_to_install=[
-    "git+https://github.com/Red-Hat-AI-Innovation-Team/training_hub.git@main",
-]
-```
-
-For OSFT, also install Mini-Trainer from source:
-
-```python
-packages_to_install=[
-    "git+https://github.com/Red-Hat-AI-Innovation-Team/training_hub.git@main",
-    "git+https://github.com/Red-Hat-AI-Innovation-Team/mini_trainer.git@main",
-]
-```
+- `training_hub` with unified callbacks (included in the RHOAI 3.6 training runtime)
 
 ## Quick Start
 
-### 1. Define a Callback (in a `.py` file)
+### 1. Define a Callback
 
 ```python
 from training_hub import TrainingHubCallback, TrainingHubContext
@@ -85,7 +66,7 @@ class LossLogger(TrainingHubCallback):
         print(f"Training finished — step={context.step}", flush=True)
 ```
 
-> Callbacks **must** be in a `.py` file (not inline in a notebook). The SDK uses `inspect.getsource()`.
+> The SDK serializes each callback class with `inspect.getsource()`. Define callbacks in importable source — a `.py` file, or a module written with `%%writefile` in a notebook. A class defined only in a notebook cell (without writing it to a file) cannot be serialized.
 
 ### 2. Submit a TrainJob
 
@@ -107,9 +88,6 @@ trainer = TrainingHubTrainer(
     },
     callbacks=[LossLogger],
     resources_per_node={"cpu": "4", "memory": "16Gi", "nvidia.com/gpu": "1"},
-    packages_to_install=[
-        "git+https://github.com/Red-Hat-AI-Innovation-Team/training_hub.git@main",
-    ],
 )
 
 job_name = TrainerClient().train(runtime="training-hub", trainer=trainer)
@@ -151,20 +129,19 @@ Training finished — step=100
 
 ## Running the Example Notebook
 
-The included notebook (`training_hub_callbacks_smoke.ipynb`) runs six TrainJobs — with and without callbacks — across all three backends:
+The included notebook (`training_hub_callbacks.ipynb`) runs six TrainJobs — with and without callbacks — across all three backends:
 
 ```bash
-jupyter notebook training_hub_callbacks_smoke.ipynb
+jupyter notebook training_hub_callbacks.ipynb
 ```
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
-| `callbacks` not on `TrainingHubTrainer` | Upgrade SDK to a version with callbacks support |
-| SDK markers OK, no hook output | Verify `training_hub` version has callbacks |
-| OSFT crashes `is_main_process` | Add `mini_trainer@main` to `packages_to_install` |
-| `inspect.getsource` error | Move callback to a `.py` file |
+| `callbacks` not on `TrainingHubTrainer` | Upgrade to RHOAI 3.6.EA1+ with SDK callbacks support |
+| SDK markers OK, no hook output | Verify cluster `training-hub` runtime includes unified callbacks |
+| `inspect.getsource` error | Define callback in a `.py` file or `%%writefile` module, not inline in a cell |
 | `defines unsupported hooks` | Remove non-unified hook methods |
 | `must use a no-argument constructor` | Remove required `__init__` params |
 
