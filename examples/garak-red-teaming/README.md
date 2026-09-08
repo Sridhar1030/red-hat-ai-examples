@@ -57,6 +57,8 @@ no changes to the agent's source code are needed.
 - **EvalHub** CR in this namespace (steps below)
 - **LLM endpoint** — a vLLM or compatible model serving endpoint accessible
   from within the cluster
+- **Dashboard feature flag** to view results in the **Evaluations** page — a
+  developer preview on RHOAI 3.5, GA on RHOAI 3.6 (steps below)
 - **CLI tools:** `oc` (authenticated), `helm`, `make`, `curl`
 - **Container build:** Podman or Docker (for local builds), or use in-cluster
   `BuildConfig` (no local tools needed)
@@ -266,6 +268,44 @@ EvalHub logs Garak results to MLflow in two layers:
 The EvalHub sidecar authenticates to MLflow with a projected ServiceAccount
 token. You do not set an MLflow password in this walkthrough.
 
+### Enable the Evaluations tab in the RHOAI dashboard
+
+Scan results are viewable from the **Evaluations** page under
+**Develop & train** in the RHOAI dashboard, which lists one entry per scan job.
+Making that page reachable is a dashboard-side setting, separate from the
+EvalHub and MLflow configuration above. On **RHOAI 3.5 the menu item is a
+developer preview** and is hidden by default — you turn it on with a dashboard
+feature flag override. On **RHOAI 3.6 the Evaluations menu is GA** and appears
+without any override, so skip this section on 3.6 and later.
+
+The override is scoped to your current browser session. It is per-user, changes
+nothing on the cluster, and does not affect other users — repeat these steps
+after clearing site data or switching browsers.
+
+1. Open the RHOAI dashboard with `/?devFeatureFlags` appended to the URL:
+
+   ```text
+   https://rhods-dashboard-redhat-ods-applications.apps.<your-cluster-domain>/?devFeatureFlags
+   ```
+
+2. In the **Feature Flags: Override Flags** dialog, select the **Legacy** tab.
+3. Scroll to the **Advanced AI/ML Features & Pipelines Flags** heading.
+4. Leave **`disableLMEval` unchecked** — unchecked means the feature is *not*
+   disabled. The value column should read `false (overridden)`.
+5. Click **Close**.
+
+![Unchecking disableLMEval on the Legacy tab of the feature flag override dialog](images/rhoai-feature-flags-legacy-lmeval.png)
+
+**Evaluations** now appears in the left navigation under **Develop & train**,
+below **Experiments**. While the override is active, a banner reads "Feature
+flags are overridden in the current session" at the top of every page. Clicking
+**Reset to defaults** in the dialog — or **Click here** in the banner — removes
+the override and hides the menu item again.
+
+> **Note:** This flag controls the dashboard menu only. It does not enable or
+> disable EvalHub itself. Scans submitted through the EvalHub API run either
+> way, and their results stay queryable via the API even when the tab is hidden.
+
 ### Set up environment variables
 
 Define these once — every command in this walkthrough references them:
@@ -471,6 +511,24 @@ in the `owasp_llm_top10` and `quality` benchmarks (encoding attacks, role-play,
 prompt extraction) often succeed. Guardrails in Step 5 add a second defense
 layer that catches attacks the model misses.
 
+### View the results in the dashboard
+
+With the **Evaluations** menu enabled, open **Develop & train** →
+**Evaluations** and select the run by its job name. The run detail page shows
+the benchmark verdict, the primary metric, and the per-probe breakdown:
+
+![Baseline Garak run in the Evaluations tab: 100% evaluation score, Quick benchmark failed](images/evaluations-baseline-fail.png)
+
+> **Reading the score:** the **Evaluation score** field on this page is the ASR
+> described above — so the 100% shown here means every DAN 11.0 prompt
+> succeeded, and the run is marked **Fail**.
+
+The **Overview** tab lists the logged metrics (`attack_success_rate` and each
+per-probe ASR, such as `dan.Dan_11_0_asr`), and **About this run** carries the
+MLflow experiment ID, run ID, status, and duration. The same run also appears
+under **Develop & train** → **Experiments**, grouped by the `experiment.name`
+from the scan submission.
+
 ### Graceful error handling
 
 This agent includes built-in retry logic for adversarial prompts
@@ -628,12 +686,15 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | Baseline (no guardrails) | **1.0** | FAIL |
 | Guardrailed | **0.0** | PASS |
 
+![Guardrailed Garak run in the Evaluations tab: 0% evaluation score, Quick benchmark passed](images/evaluations-guardrailed-pass.png)
+
 The guardrails completely mitigated the DAN jailbreak — from 100% attack
-success to 0%. The **self-check input rail** classifies the DAN prompt as
-unsafe and blocks it before it reaches the LLM. The regex rail provides
-additional coverage for explicit jailbreak patterns (e.g., "ignore
-previous instructions") but is not what blocks the DAN 11.0 probe
-specifically.
+success to 0%. In the **Evaluations** tab the same benchmark now shows an
+evaluation score of 0% and a **Pass** verdict. The **self-check input rail**
+classifies the DAN prompt as unsafe and blocks it before it reaches the LLM.
+The regex rail provides additional coverage for explicit jailbreak patterns
+(e.g., "ignore previous instructions") but is not what blocks the DAN 11.0
+probe specifically.
 
 ### Switching to comprehensive scans
 
@@ -740,6 +801,7 @@ For mapping scan results to guardrails mitigations, see
 ├── docs/
 │   ├── scan-configuration.md          # Scan benchmarks, OWASP Top 10, custom parameters
 │   └── remediation-mapping.md         # Garak probe → NeMo rail mapping
+├── images/                            # Dashboard screenshots used in the docs
 ├── tests/                             # Unit tests (API contract, tools, auth middleware)
 └── playground/
     └── templates/index.html           # Web chat UI (served by FastAPI at /)
@@ -754,7 +816,8 @@ For mapping scan results to guardrails mitigations, see
 | `Forbidden` on job submission | Missing RBAC permissions | Use `oc whoami -t` for the bearer token; ensure the user has the `create` verb on `evaluations.trustyai.opendatahub.io`. See [Grant access to EvalHub](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/evaluating_ai_systems/evaluating-llms-with-evalhub_evaluate) (§2.29) |
 | EvalHub CR never becomes available | TrustyAI not Managed, CRD missing, or operator not reconciling | Confirm `trustyai.managementState: Managed`, `oc get crd evalhubs.trustyai.opendatahub.io`, `oc get pods -l app=eval-hub`, and TrustyAI operator logs |
 | `garak` missing from providers list | `garak` not listed in `spec.providers` | Edit the EvalHub CR to include `- garak` under `spec.providers`, then re-check `/api/v1/evaluations/providers` |
-| Scan results not visible in RHOAI dashboard | Missing `experiment` block in the scan submission | Add an `experiment` block — without it, results are only available via the EvalHub API. See [MLflow Experiment Tracking](docs/scan-configuration.md#mlflow-experiment-tracking) |
+| **Evaluations** missing from the dashboard navigation, or gone after reopening it | On RHOAI 3.5 the menu is a dev preview, and the override is scoped to the browser session rather than to the cluster | Apply or re-apply the override — see [Enable the Evaluations tab](#enable-the-evaluations-tab-in-the-rhoai-dashboard). GA in RHOAI 3.6 |
+| Scan results missing from **Experiments** | Missing `experiment` block in the scan submission | Add an `experiment` block — without it, results are only available via the EvalHub API. See [MLflow Experiment Tracking](docs/scan-configuration.md#mlflow-experiment-tracking) |
 | Scan completes but Experiments is still empty | `MLFLOW_TRACKING_URI` missing or wrong on the EvalHub CR | Set `MLFLOW_TRACKING_URI` in `spec.env` to the in-cluster tracking URI. This is distinct from a missing job `experiment` block |
 | Agent unreachable from EvalHub | Network policy or wrong service URL | Test from inside the cluster: `oc exec <evalhub-pod> -- curl <agent-svc>:8080/health` |
 | Baseline scan timeouts after applying guardrails | Agent `BASE_URL` changed mid-scan; sidecar proxy times out on extra guardrails hop | Wait for baseline scan to complete before changing `BASE_URL` in Step 5. Use `quick` benchmark for fast iteration |
