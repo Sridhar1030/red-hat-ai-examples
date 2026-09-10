@@ -129,7 +129,7 @@ Training finished — step=100
 
 ## Running the Example Notebook
 
-The included notebook (`training_hub_callbacks.ipynb`) runs six TrainJobs — with and without callbacks — across all three backends:
+The included notebook (`training_hub_callbacks.ipynb`) runs three TrainJobs — one per backend with `callbacks=` set — and verifies SDK injection and hook output in pod logs:
 
 ```bash
 jupyter notebook training_hub_callbacks.ipynb
